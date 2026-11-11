@@ -1,0 +1,177 @@
+-- =========================================================
+-- COLLEGE LIBRARY MANAGEMENT SYSTEM
+-- BCA Data Science - SQL Section C Project
+-- Database: librarydb
+--
+-- Run this complete file in a MySQL 8.0-compatible environment.
+-- It creates the database, tables, sample records, queries C2-C12,
+-- stored procedure C13, and trigger C14.
+-- =========================================================
+
+create database librarydb;
+use librarydb;
+
+create table members (
+    member_id int primary key auto_increment,
+    member_name varchar(100) not null,
+    member_type enum('Student','Faculty') not null,
+    joined_date date
+);
+
+create table books (
+    book_id int primary key auto_increment,
+    title varchar(150) not null,
+    author varchar(100),
+    category varchar(100),
+    price decimal(10,2),
+    copies_available int default 0
+);
+
+-- issues table, links members and books
+create table issues (
+    issue_id int primary key auto_increment,
+    member_id int not null,
+    book_id int not null,
+    issue_date date not null,
+    due_date date not null,
+    return_date date null,
+    foreign key (member_id) references members(member_id),
+    foreign key (book_id) references books(book_id)
+);
+
+-- check if everything got created
+show tables;
+desc members;
+desc books;
+desc issues;
+
+
+-- C2: counts
+select count(*) from members;
+select count(*) from books;
+select count(*) from issues;
+
+
+-- C3: titles and copies per category
+select category, count(*) as titles, sum(copies_available) as copies
+from books
+group by category;
+
+
+-- C4: top 5 most borrowed books
+select b.title, count(*) as times_borrowed
+from books b
+join issues i on b.book_id = i.book_id
+group by b.title
+order by times_borrowed desc
+limit 5;
+
+
+-- C5: members who never borrowed
+select m.member_name
+from members m
+left join issues i on m.member_id = i.member_id
+where i.issue_id is null;
+
+
+-- C6: books currently issued
+select m.member_name, b.title, i.due_date
+from issues i
+join members m on i.member_id = m.member_id
+join books b on i.book_id = b.book_id
+where i.return_date is null;
+
+
+-- C7: late returns with fine (rs 2 per day)
+select m.member_name, b.title, i.due_date, i.return_date,
+       datediff(i.return_date, i.due_date) as days_late,
+       datediff(i.return_date, i.due_date) * 2 as fine
+from issues i
+join members m on i.member_id = m.member_id
+join books b on i.book_id = b.book_id
+where i.return_date > i.due_date;
+
+
+-- C8: total fine per member
+select m.member_name,
+       sum(datediff(i.return_date, i.due_date) * 2) as total_fine
+from issues i
+join members m on i.member_id = m.member_id
+where i.return_date > i.due_date
+group by m.member_name
+having total_fine > 0;
+
+
+-- C9: student vs faculty
+select m.member_type, count(*) as books_borrowed
+from issues i
+join members m on i.member_id = m.member_id
+group by m.member_type;
+
+
+-- C10: rank members by books borrowed
+select m.member_name, count(*) as books_borrowed,
+       rank() over (order by count(*) desc) as rank_no
+from issues i
+join members m on i.member_id = m.member_id
+group by m.member_name;
+
+
+-- C11: issues per category
+select b.category, count(*) as total_issues
+from issues i
+join books b on i.book_id = b.book_id
+group by b.category
+order by total_issues desc;
+
+
+-- C12: zero copies and still pending issues
+select title, copies_available
+from books
+where copies_available = 0
+  and book_id in (select book_id from issues where return_date is null);
+
+
+-- C13: stored procedure
+delimiter //
+create procedure member_history(in p_member_id int)
+begin
+    select b.title, i.issue_date, i.due_date, i.return_date
+    from issues i
+    join books b on i.book_id = b.book_id
+    where i.member_id = p_member_id;
+end //
+delimiter ;
+
+call member_history(1);
+
+
+-- C14: trigger (on copies of the tables)
+create table books_copy like books;
+insert into books_copy select * from books;
+
+create table issues_copy like issues;
+insert into issues_copy select * from issues;
+
+delimiter //
+create trigger reduce_copies
+after insert on issues_copy
+for each row
+begin
+    update books_copy
+    set copies_available = copies_available - 1
+    where book_id = new.book_id;
+end //
+delimiter ;
+
+-- test
+select title, copies_available from books_copy where book_id = 1;
+
+insert into issues_copy (member_id, book_id, issue_date, due_date)
+values (9, 1, '2026-11-10', '2026-11-24');
+
+select title, copies_available from books_copy where book_id = 1;
+
+-- =========================================================
+-- END OF PROJECT
+-- =========================================================
